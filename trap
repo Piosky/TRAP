@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import sys
+import psutil
+
+DIR=os.path.dirname(os.path.realpath(__file__))
+
+
+def checkIfProcessRunning(processName):
+	#Iterate over the all the running process
+	for proc in psutil.process_iter():
+		try:
+			# Check if process name contains the given name string.
+			if processName.lower() in proc.name().lower():
+				return True
+		except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+			pass
+	return False;
+
+
+def main(args):
+	if len(sys.argv) == 1:
+		argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point').print_help()
+		sys.exit()
+
+	#Specific features
+	if args.cert:
+		if args.cert == "1" or args.cert == "2":
+			os.system(DIR + "/scripts/trap.sh -j  " + args.cert)
+			sys.exit()
+		else:
+			argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point').print_help()
+			print("[!] The instance number should be 1 or 2.")
+			sys.exit()
+	if args.clean:
+		os.system(DIR + "/scripts/trap.sh -o")
+		sys.exit()
+
+	# Check for known incompatible options
+	if args.interface is None or args.upstream is None or args.essid is None or args.channel is None or args.bssid is None:
+		argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point').print_help()
+		print("[!] The options -i, -u, -e, -c and -b are required")
+		sys.exit()
+	if args.known_beacons and not args.mana:
+		argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point').print_help()
+		print("[!] The option --known-beacons has to be combined with the option --mana")
+		sys.exit()
+	if args.bssid_whitelist and args.bssid_blacklist:
+		argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point').print_help()
+		print("[!] The options --bssid-whitelist and --bssid-blacklist cannot be combined")
+		sys.exit()
+	if args.ssl and not args.captive_portal:
+		argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point').print_help()
+		print("[!] The option for captive portal is missing (-w)")
+		sys.exit()
+
+	# Setup minimal options
+	MINIMAL_OPTIONS=DIR + "/scripts/trap.sh -i " + args.interface + " -u " + args.upstream + " -e " + args.essid + " -c " + args.channel + " -b " + args.bssid
+	if args.captive_portal:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -w"
+	if args.ht:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -t"
+	if args.mana:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -m"
+	if args.known_beacons:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -k"
+	if args.bssid_whitelist:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -q " + args.bssid_whitelist
+	if args.bssid_blacklist:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -z " + args.bssid_blacklist
+	if args.ssid_whitelist:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -r " + args.ssid_whitelist
+	if args.ssid_blacklist:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -y " + args.ssid_blacklist
+	if args.ssl:
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -s " + args.ssl
+	# Is an instance of TRAP running ?
+	if checkIfProcessRunning("trap.sh"):
+		MINIMAL_OPTIONS = MINIMAL_OPTIONS + " -n"
+
+	# EAP
+	if args.eap and args.psk is None:
+		if args.downgrade:
+			if args.downgrade == "balanced" or args.downgrade == "full" or args.downgrade == "weakest":
+				os.system(MINIMAL_OPTIONS + " -x -d " + args.downgrade)
+			else:
+				argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point').print_help()
+				print("[!] Bad argument for downgrade: full/weakest/balanced")
+				sys.exit()
+		else:
+			os.system(MINIMAL_OPTIONS + " -x")
+
+	# PSK
+	elif args.psk and args.eap is False:
+		os.system(MINIMAL_OPTIONS + " -p " + args.psk)
+
+	# Open
+	elif args.eap is False and args.psk is None:
+		os.system(MINIMAL_OPTIONS)
+
+	#ERROR
+	else:
+		print("[!] Incompatible options")
+		sys.exit()
+
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser(description='TRAP: Targeted Rogue Acces Point')
+	parser.add_argument('-i', '--interface',
+                    help='Access Point interface: wlan1')
+	parser.add_argument('-u', '--upstream',
+                    help='Upstream interface: wlan0')
+	parser.add_argument('-e', '--essid',
+                    help='ESSID: EvilAP')
+	parser.add_argument('-c', '--channel',
+                    help='802.11 2.4GHz or 5GHz channel: 44')
+	parser.add_argument('-b', '--bssid',
+                    help='BSSID: 00:11:22:33:44:55')
+	parser.add_argument('-p', '--psk',
+                    help='Pre-Shared Key: mysuperPSK')
+	parser.add_argument('-w', '--captive-portal', action='store_true',
+                    help='Enable captive portal based on config/captive_portal/captive_sites.txt')
+	parser.add_argument('-x', '--eap', action='store_true',
+                    help='Enable 802.1x: Stealing EAP credentials but no upstream')
+	parser.add_argument('-d', '--downgrade',
+                    help='802.1x authentication protocol negotiation (no downgrade if not set): full/weakest/balanced')
+	parser.add_argument('--ht', action='store_true',
+                    help='Enable channel bonding')
+	parser.add_argument('-m', '--mana', action='store_true',
+                    help='Enable MANA with loud mode')
+	parser.add_argument('-k', '--known-beacons', action='store_true',
+                    help='Enable known-beacons attack')
+	parser.add_argument('--bssid-whitelist',
+                    help='MFACL (BSSID whitelist) : /path/to/file.txt')
+	parser.add_argument('--bssid-blacklist',
+                    help='MFACL (BSSID blacklist) : /path/to/file.txt')
+	parser.add_argument('--ssid-whitelist',
+                    help='MFACL (ESSID whitelist) : /path/to/file.txt')
+	parser.add_argument('--ssid-blacklist',
+                    help='MFACL (ESSID blacklist) : /path/to/file.txt')
+	parser.add_argument('--cert',
+                    help='Generate certificate for 802.1x')
+	parser.add_argument('-s', '--ssl',
+                    help='Use config/captive_portal/nginx/nginx_ssl.conf')
+	parser.add_argument('--clean', action='store_true',
+                    help='Clean all configuration and loot files execpt for all the files under /captive_portal folder.')
+	args = parser.parse_args()
+
+	main(args)
